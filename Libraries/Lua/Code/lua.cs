@@ -29,7 +29,7 @@ namespace Dextr {
 /// <summary>
 /// C#-side module implementation.
 /// </summary>
-internal partial class Module
+internal partial class Lua
 {
 	
 // // Used for __unwind.
