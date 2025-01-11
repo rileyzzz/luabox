@@ -99,7 +99,7 @@ public static class Mem
 
 	private static Dictionary<Type, int> TypeSize = new();
 	private static Dictionary<Type, WriteUnmanagedTypeFunc> WriteUnmanagedType = new();
-
+	
 	static Mem()
 	{
 		//GlobalMemory = ArrayPool<byte>.Create();
@@ -121,6 +121,47 @@ public static class Mem
 
 		RegisterType<Int128>( 16 );
 		RegisterType<decimal>( 16 );
+	}
+
+	// Shorthand for various functions, used by minified modules.
+	public static class Shorthand
+	{
+		[MethodImpl( MethodImplOptions.AggressiveInlining )]
+		public static RawPointer _F( int index, string dbgName = null ) { return FuncPtr(index, dbgName); }
+
+		[MethodImpl( MethodImplOptions.AggressiveInlining )]
+		public static object _C( RawPointer fnPtr, params object[] args ) { return CallFuncPtrExplicit( fnPtr, args ); }
+
+		[MethodImpl( MethodImplOptions.AggressiveInlining )]
+		public static T _C<T>( RawPointer fnPtr, params object[] args ) { return (T)CallFuncPtrExplicit( fnPtr, args ); }
+
+		[MethodImpl( MethodImplOptions.AggressiveInlining )]
+		public static RawPointer _A( int size, ref int sp, int align = 0 ) { return StackAlloc(size, ref sp, align); }
+
+		[MethodImpl( MethodImplOptions.AggressiveInlining )]
+		public static void _P( int size ) { PopStack(size); }
+
+		
+		[MethodImpl( MethodImplOptions.AggressiveInlining )] public static void _S<T>( RawPointer offset, T data, int size ) where T : unmanaged { Store<T>(offset, data, size); }
+		[MethodImpl( MethodImplOptions.AggressiveInlining )] public static void _S( RawPointer offset, in ZeroConst data, int size ) { Store(offset, data, size); }
+		[MethodImpl( MethodImplOptions.AggressiveInlining )] public static void _S( RawPointer offset, ReadOnlySpan<byte> data, int size ) { Store(offset, data, size); }
+		[MethodImpl( MethodImplOptions.AggressiveInlining )] public static void _S( RawPointer offset, bool value ) { Store(offset, value); }
+		[MethodImpl( MethodImplOptions.AggressiveInlining )] public static void _S( RawPointer offset, sbyte value ) { Store(offset, value); }
+		[MethodImpl( MethodImplOptions.AggressiveInlining )] public static void _S( RawPointer offset, short value ) { Store(offset, value); }
+		[MethodImpl( MethodImplOptions.AggressiveInlining )] public static void _S( RawPointer offset, int value ) { Store(offset, value); }
+		[MethodImpl( MethodImplOptions.AggressiveInlining )] public static void _S( RawPointer offset, long value ) { Store(offset, value); }
+		[MethodImpl( MethodImplOptions.AggressiveInlining )] public static void _S( RawPointer offset, float value ) { Store(offset, value); }
+		[MethodImpl( MethodImplOptions.AggressiveInlining )] public static void _S( RawPointer offset, double value ) { Store(offset, value); }
+
+
+		[MethodImpl( MethodImplOptions.AggressiveInlining )] public static T _L<T>( RawPointer offset ) where T : unmanaged { return Load<T>(offset); }
+		[MethodImpl( MethodImplOptions.AggressiveInlining )] public static bool _L1( RawPointer offset ) { return LoadBool(offset); }
+		[MethodImpl( MethodImplOptions.AggressiveInlining )] public static sbyte _L8( RawPointer offset ) { return LoadByte(offset); }
+		[MethodImpl( MethodImplOptions.AggressiveInlining )] public static short _L16( RawPointer offset ) { return LoadShort(offset); }
+		[MethodImpl( MethodImplOptions.AggressiveInlining )] public static int _L32( RawPointer offset ) { return LoadInt(offset); }
+		[MethodImpl( MethodImplOptions.AggressiveInlining )] public static long _L64( RawPointer offset ) { return LoadLong(offset); }
+		[MethodImpl( MethodImplOptions.AggressiveInlining )] public static float _LS( RawPointer offset ) { return LoadSingle(offset); }
+		[MethodImpl( MethodImplOptions.AggressiveInlining )] public static double _LD( RawPointer offset ) { return LoadDouble(offset); }
 	}
 
 	public static void Reset()
@@ -308,7 +349,7 @@ public static class Mem
 	public static void RegisterFunc( int index, Type modType, string funcName )
 	{
 		// FuncTable[index] = TypeLibrary.GetType( modType ).GetMethod( funcName );
-		FuncTable[index] = TypeLibrary.GetType( modType ).Methods.FirstOrDefault((MethodDescription x) => x.IsNamed(funcName));
+		FuncTable[index] = TypeLibrary.GetType( modType ).Methods.FirstOrDefault((MethodDescription x) => string.Equals(x.Name, funcName));
 		
 		if (FuncTable[index] == null)
 		{
@@ -327,7 +368,7 @@ public static class Mem
 		return FuncNameToIndex[func];
 	}
 	
-	public static RawPointer FuncPtr( int index, string dbgName )
+	public static RawPointer FuncPtr( int index, string dbgName = null )
 	{
 		return FuncBase + index;
 	}
@@ -2046,6 +2087,16 @@ public const int PROT_GROWSUP   = 0x02000000;
         return null;
     }
 
+    public static void Unlink( string path )
+    {
+        FileSystem.Data.DeleteFile( path );
+    }
+
+    public static void RMDir( string path )
+    {
+        FileSystem.Data.DeleteDirectory( path, false );
+    }
+
     public static int GetFlags(int fd)
     {
         InternalFileRecord rec = GetRecord(fd);
@@ -2066,6 +2117,70 @@ public const int PROT_GROWSUP   = 0x02000000;
             throw new Exception("Cannot change append mode after creation!");
     
         rec.Flags = flags;
+    }
+
+    private static InternalFileRecord DupStream(InternalFileRecord old, int fd)
+    {
+        InternalFileRecord rec = new();
+        rec.Stream = old.Stream;
+        rec.Path = old.Path;
+        rec.Flags = old.Flags;
+
+        if (fd < 0)
+        {
+            // Try to use a null FD slot.
+            int i;
+            for (i = 0; i < Records.Count; i++)
+            {
+                if (Records[i] == null)
+                {
+                    rec.FD = RecordBase + i;
+                    Records[i] = rec;
+                    break;
+                }
+            }
+
+            if (i == Records.Count)
+            {
+                // No empty records, add a new one.
+                rec.FD = RecordBase + Records.Count;
+                Records.Add(rec);
+            }
+        }
+        else
+        {
+            // If there was an existing record here it should have been closed.
+            Assert.True(Records[fd - RecordBase] == null);
+
+            rec.FD = fd;
+            Records[fd - RecordBase] = rec;
+        }
+
+        return rec;
+    }
+
+    public static int Dup3(int fd, int newfd, int flags)
+    {
+        InternalFileRecord old = GetRecord(fd);
+        if (old == null)
+            throw new Exception("No record!");
+
+        if (old.Stream == null)
+            throw new Exception($"Invalid stream for '{old.Path}'");
+        
+        if (old.FD == newfd)
+            return -EINVAL;
+        
+        if (newfd < 0 || newfd >= 4096)
+            return -EBADF;
+
+        InternalFileRecord existing = GetRecord(newfd);
+        if (existing != null)
+        {
+            Close(newfd);
+        }
+        
+        return DupStream(old, newfd).FD;
     }
 
     public static int OpenAt(int dirfd, string path, int flags, int mode)
@@ -2896,6 +3011,14 @@ private void _emscripten_throw_longjmp()
 		WriteString(buf, buf_len, ProgName);
 	}
 
+	private int _emscripten_system(RawPointer command)
+	{
+		// Can't call external programs.
+		if (command == 0) return 0;
+
+		return -ModuleFS.ENOSYS;
+	}
+
 	private int __syscall_getcwd(RawPointer buf, int size)
 	{
 		string cwd = "/";
@@ -2941,6 +3064,11 @@ private void _emscripten_throw_longjmp()
 		}
 
 		return 0;
+	}
+
+	private int __syscall_dup3(int fd, int newfd, int flags)
+	{
+		return ModuleFS.Dup3(fd, newfd, flags);
 	}
 
 	private int __syscall_openat(int dirfd, RawPointer pPath, int flags, params object[] args)
@@ -3028,6 +3156,27 @@ private void _emscripten_throw_longjmp()
 		string path = GetString(pPath);
 		path = ModuleFS.CalcPath(dirfd, path, allowEmpty);
 		return ModuleFS.Stat(path, buf);
+	}
+
+	private int __syscall_rmdir(RawPointer pPath)
+	{
+		string path = GetString(pPath);
+		ModuleFS.RMDir( path );
+		return 0;
+	}
+
+	private int __syscall_unlinkat(int dirfd, RawPointer pPath, int flags)
+	{
+		string path = GetString(pPath);
+		path = ModuleFS.CalcPath(dirfd, path);
+		if (flags == 0) {
+			ModuleFS.Unlink(path);
+		} else if (flags == ModuleFS.AT_REMOVEDIR) {
+			ModuleFS.RMDir(path);
+		} else {
+			throw new Exception("Invalid flags passed to unlinkat");
+		}
+    	return 0;
 	}
 
 	private short __wasi_fd_close(int fd)
@@ -3140,6 +3289,7 @@ private void _emscripten_throw_longjmp()
 	private void _localtime_js(long t, RawPointer o_tm)
 	{
 		var localTime = DateTime.UnixEpoch.AddSeconds(t);
+		localTime = localTime.ToLocalTime();
 
 		tm data = new tm();
 
@@ -3154,6 +3304,53 @@ private void _emscripten_throw_longjmp()
 		data.tm_isdst = localTime.IsDaylightSavingTime() ? 1 : 0;
 		data.__tm_gmtoff = TimeZoneInfo.Local.GetUtcOffset(localTime).Seconds;
 		data.__tm_zone = 0;
+
+		Mem.Store<tm>(o_tm, data, 48);
+	}
+
+	private long _mktime_js( RawPointer tm )
+	{
+		tm data = Mem.Load<tm>( tm );
+
+		DateTime time = new DateTime( data.tm_year+1900, data.tm_mon, data.tm_mday, data.tm_hour, data.tm_min, data.tm_sec, DateTimeKind.Local );
+		
+		// Convert to UTC.
+		time = time.ToUniversalTime();
+
+		data.tm_sec = time.Second;
+		data.tm_min = time.Minute;
+		data.tm_hour = time.Hour;
+		data.tm_mday = time.Day;
+		data.tm_mon = time.Month;
+		data.tm_year = time.Year-1900;
+		data.tm_wday = (int)time.DayOfWeek;
+		data.tm_yday = time.DayOfYear;
+		// No DST in UTC.
+		// data.tm_isdst = time.IsDaylightSavingTime() ? 1 : 0;
+
+		Mem.Store<tm>(tm, data, 48);
+
+		return (long)time.Subtract(DateTime.UnixEpoch).TotalSeconds;
+	}
+
+	private void _gmtime_js( long t, RawPointer o_tm )
+	{
+		// UTC time.
+		var time = DateTime.UnixEpoch.AddSeconds(t);
+
+		tm data = new tm();
+
+		data.tm_sec = time.Second;
+		data.tm_min = time.Minute;
+		data.tm_hour = time.Hour;
+		data.tm_mday = time.Day;
+		data.tm_mon = time.Month;
+		data.tm_year = time.Year-1900;
+		data.tm_wday = (int)time.DayOfWeek;
+		data.tm_yday = time.DayOfYear;
+		data.tm_isdst = time.IsDaylightSavingTime() ? 1 : 0;
+		// data.__tm_gmtoff = TimeZoneInfo.Local.GetUtcOffset(time).Seconds;
+		// data.__tm_zone = 0;
 
 		Mem.Store<tm>(o_tm, data, 48);
 	}

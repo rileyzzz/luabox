@@ -1,0 +1,199 @@
+@using System;
+@using Sandbox;
+@using Sandbox.UI;
+@using Sandbox.Razor;
+@using Sandbox.Utility;
+
+@inherits Panel
+
+<root>
+    <div class="header">
+        Test Header
+    </div>
+    <div class="content">
+        @Content
+    </div>
+
+    <div class="grip">
+        <i>texture</i>
+    </div>
+</root>
+
+@code {
+    public RenderFragment Content { get; set; }
+
+    public float HeaderSize => 32 * ScaleToScreen;
+
+    [System.Flags]
+    protected enum DragAnchor {
+        None = 0,
+        Top = 0x1,
+        Right = 0x2,
+        Bottom = 0x4,
+        Left = 0x8
+    }
+
+    public override bool WantsDrag => true;
+
+    protected DragAnchor Anchor { get; set; } = DragAnchor.None;
+    protected Vector2 DragOffset;
+    protected Rect WindowRect;
+
+    protected override void OnAfterTreeRender(bool firstTime)
+    {
+        base.OnAfterTreeRender(firstTime);
+
+        if (firstTime)
+        {
+            WindowRect = new Rect(Screen.Width / 2, Screen.Height / 2, 200, 200);
+        }
+
+        UpdateRect();
+    }
+
+    protected void UpdateRect()
+    {
+        this.Style.Left = Length.Pixels(WindowRect.Left * ScaleFromScreen);
+        this.Style.Top = Length.Pixels(WindowRect.Top * ScaleFromScreen);
+        this.Style.Width = Length.Pixels(WindowRect.Width * ScaleFromScreen);
+        this.Style.Height = Length.Pixels(WindowRect.Height * ScaleFromScreen);
+    }
+
+    protected override void OnMouseDown(MousePanelEvent e)
+    {
+        base.OnMouseDown(e);
+
+        if (e.MouseButton != MouseButtons.Left)
+            return;
+
+        var pos = Mouse.Position;
+        var rect = Box.Rect;
+        const int grabMargin = 16;
+
+        Anchor = DragAnchor.None;
+
+        if (pos.x < rect.Left + 16)
+        {
+            Anchor |= DragAnchor.Left;
+            DragOffset.x = rect.Left - pos.x;
+            e.StopPropagation();
+        }
+        else if (pos.x > rect.Right - 16)
+        {
+            Anchor |= DragAnchor.Right;
+            DragOffset.x = rect.Right - pos.x;
+            e.StopPropagation();
+        }
+
+        if (pos.y < rect.Top + HeaderSize)
+        {
+            Anchor |= DragAnchor.Top;
+            DragOffset.y = rect.Top - pos.y;
+            e.StopPropagation();
+        }
+        else if (pos.y > rect.Bottom - 16)
+        {
+            Anchor |= DragAnchor.Bottom;
+            DragOffset.y = rect.Bottom - pos.y;
+            e.StopPropagation();
+        }
+
+        if (Anchor == DragAnchor.Top)
+        {
+            DragOffset = pos - rect.TopLeft;
+        }
+    }
+
+    protected override void OnMouseUp(MousePanelEvent e)
+    {
+        base.OnMouseUp(e);
+
+
+        Anchor = DragAnchor.None;
+    }
+
+    protected static bool ConstrainPosition( ref Vector2 pos )
+    {
+        bool ret = false;
+        if (pos.x < 0)
+        {
+            pos = pos.WithX(0);
+            ret = true;
+        }
+
+        if (pos.x > Screen.Width - 16)
+        {
+            pos = pos.WithX(Screen.Width - 16);
+            ret = true;
+        }
+
+        if (pos.y < 0)
+        {
+            pos = pos.WithY(0);
+            ret = true;
+        }
+
+        if (pos.y > Screen.Height - 16)
+        {
+            pos = pos.WithY(Screen.Height - 16);
+            ret = true;
+        }
+
+        return ret;
+    }
+
+    public override void Tick()
+    {
+        base.Tick();
+
+        bool needsUpdate = false;
+
+        if (Anchor != DragAnchor.None)
+        {
+            var rect = Box.Rect;
+
+            var mousePos = Mouse.Position;
+
+            if (Anchor == DragAnchor.Top)
+            {
+                // Drag the whole window.
+                Vector2 newPos = mousePos - DragOffset;
+                ConstrainPosition(ref newPos);
+                WindowRect.Position = newPos;
+            }
+            else
+            {
+                if (Anchor.HasFlag(DragAnchor.Left)) WindowRect.Left = Math.Clamp(mousePos.x + DragOffset.x, 0, Screen.Width);
+                if (Anchor.HasFlag(DragAnchor.Right)) WindowRect.Right = Math.Clamp(mousePos.x + DragOffset.x, 0, Screen.Width);
+                if (Anchor.HasFlag(DragAnchor.Top)) WindowRect.Top = Math.Clamp(mousePos.y + DragOffset.y, 0, Screen.Height);
+                if (Anchor.HasFlag(DragAnchor.Bottom)) WindowRect.Bottom = Math.Clamp(mousePos.y + DragOffset.y, 0, Screen.Height);
+            }
+
+            needsUpdate = true;
+        }
+
+        Vector2 constrained = WindowRect.Position;
+        if (ConstrainPosition(ref constrained))
+        {
+            WindowRect.Position = constrained;
+            needsUpdate = true;
+        }
+
+        if (WindowRect.Height < HeaderSize)
+        {
+            WindowRect.Height = HeaderSize;
+            needsUpdate = true;
+        }
+
+        if (WindowRect.Width < 50)
+        {
+            WindowRect.Width = 50;
+            needsUpdate = true;
+        }
+
+        if (needsUpdate)
+        {
+            UpdateRect();
+        }
+    }
+}
