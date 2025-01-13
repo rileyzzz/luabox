@@ -78,6 +78,8 @@ public static class Mem
 	private static RawPointer FuncBase;
 	private static RawPointer FuncEnd;
 	private static MethodDescription[] FuncTable;
+	
+	public delegate object ExternalFunc( object[] args );
 	private static Dictionary<string, int> FuncNameToIndex = new();
 
 	// private const int StackBase = 1048576; // 65536
@@ -85,7 +87,7 @@ public static class Mem
 	private static byte[] Memory = new byte[16777216]; // 16777216
 	private static ArrayPool<byte> SmallBufPool;
 
-	private const int ObjectPoolBase = 0xFFFF;
+	private const int ObjectPoolBase = 0xFFFFFF;
 	private static List<object> ObjectPool = new();
 
 	// public static byte[] Raw => Memory;
@@ -411,7 +413,15 @@ public static class Mem
 	{
 		if (fnPtr < FuncBase || fnPtr >= FuncEnd)
 		{
-			throw new Exception( $"Invalid function pointer {fnPtr}!!!" );
+			// Is this an external call?
+			if (TryGetObject( fnPtr, out ExternalFunc ext ))
+			{
+				return ext(args);
+			}
+			else
+			{
+				throw new Exception( $"Invalid function pointer {fnPtr}!!!" );
+			}
 		}
 
 		MethodDescription fn = FuncTable[fnPtr - FuncBase];
@@ -470,6 +480,26 @@ public static class Mem
 		RawPointer idx = ObjectPoolBase + ObjectPool.Count;
 		ObjectPool.Add(obj);
 		return idx;
+	}
+
+	public static RawPointer AllocNewFunction( ExternalFunc func )
+	{
+		return AllocNewObject( func );
+	}
+
+	public static bool TryGetObject<T>( RawPointer index, out T value )
+	{
+		if (index >= ObjectPoolBase && (index - ObjectPoolBase) < ObjectPool.Count)
+		{
+			if ( ObjectPool[index - ObjectPoolBase] is T found )
+			{
+				value = found;
+				return true;
+			}
+		}
+
+		value = default;
+		return false;
 	}
 
 	public static T GetObject<T>( RawPointer index )

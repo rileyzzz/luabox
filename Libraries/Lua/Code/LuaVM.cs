@@ -1,9 +1,20 @@
 using System;
+using System.Collections.Generic;
+using System.Reflection;
 using Sandbox;
 using Sandbox.Diagnostics;
 using PTR = int;
 
 namespace LuaBox;
+
+public struct ContextOptions
+{
+	public bool BindSandboxTypes { get; set; } = true;
+
+	public ContextOptions()
+	{
+	}
+}
 
 public enum Op : int
 {
@@ -75,25 +86,44 @@ public static class Lua
 
 	public static LuaContext CreateContext()
 	{
+		return CreateContext( new ContextOptions() );
+	}
+
+	public static LuaContext CreateContext( in ContextOptions options )
+	{
 		if (Module == null)
 		{
 			Log.Error("Lua.Init hasn't been called!");
 		}
 
-		return new LuaContext();
+		return new LuaContext( options );
 	}
 }
 
 public class LuaContext : IDisposable
 {
 	internal PTR L = 0;
+	internal static Dictionary<PTR, LuaContext> ContextByPtr = new();
 
-	public LuaContext()
+	internal Dictionary<object, PTR> ObjectPool = new();
+
+	public delegate int CFunction( LuaContext context );
+
+	public LuaContext( in ContextOptions options )
 	{
 		L = Lua.Module.luaL_newstate();
 		Assert.True( L != 0 );
+		ContextByPtr[L] = this;
 
 		Lua.Module.luaL_openlibs( L );
+
+		CreateTestLibrary();
+
+		Log.Info( $"options {options.BindSandboxTypes}" );
+		if (options.BindSandboxTypes)
+		{
+			InitTypeBindings();
+		}
 	}
 
 	~LuaContext()
@@ -103,10 +133,160 @@ public class LuaContext : IDisposable
 
 	public void Dispose()
 	{
+		ContextByPtr.Remove( L );
+
 		if ( Lua.Module != null && L != 0 )
 		{
 			Lua.Module.lua_close( L );
 			L = 0;
+		}
+	}
+
+	protected PTR GetObjectPtr( object obj )
+	{
+		if ( ObjectPool.TryGetValue( obj, out PTR ptr ) )
+			return ptr;
+
+		ptr = Dextr.Lua.Mem.AllocNewObject( obj );
+		ObjectPool.Add( obj, ptr );
+		return ptr;
+	}
+
+	internal PTR GetFunctionPtr( Dextr.Lua.Mem.ExternalFunc fn )
+	{
+		if ( ObjectPool.TryGetValue( fn, out PTR ptr ) )
+			return ptr;
+
+		ptr = Dextr.Lua.Mem.AllocNewFunction( fn );
+		ObjectPool.Add( fn, ptr );
+		return ptr;
+	}
+
+	protected void InitTypeBindings()
+	{
+		foreach (var type in TypeLibrary.GetTypes())
+		{
+			if ( type.Namespace == null || !type.Namespace.StartsWith("Sandbox") )
+				continue;
+
+			CreateLibraryForType( type );
+			//CreateBindingsForType( type );
+		}
+	}
+
+	protected void CreateTestLibrary()
+	{
+		Log.Info( "creating test library" );
+
+		NewLib( new (string, CFunction)[] {
+			( "runtest", TestFunc )
+		} );
+		SetGlobal("TestLib");
+	}
+
+	protected static int TestFunc( LuaContext ctx )
+	{
+		Log.Info( $"testfunc called on context {ctx}!" );
+		return 0;
+	}
+
+	protected object LuaToManaged( Type type, int index )
+	{
+		if ( type == typeof( int ) )
+		{
+			return (int)ToInteger( index );
+		}
+		else if ( type == typeof( long ) )
+		{
+			return ToInteger( index );
+		}
+		else if ( type == typeof( float ) )
+		{
+			return (float)ToNumber( index );
+		}
+		else if ( type == typeof( double ) )
+		{
+			return ToNumber( index );
+		}
+
+		PTR ptr = ToPointer( index );
+		object managedObject = null;
+		if (ptr != 0)
+		{
+			managedObject = Dextr.Lua.Mem.GetObject<object>( ptr );
+		}
+
+		return managedObject;
+	}
+
+	protected void PushManagedToLua( object obj )
+	{
+		if ( obj.GetType() == typeof( int ) )
+		{
+			PushInteger( (int)obj );
+		}
+		else if ( obj.GetType() == typeof( long ) )
+		{
+			PushInteger( (long)obj );
+		}
+		else if ( obj.GetType() == typeof( float ) )
+		{
+			PushNumber( (float)obj );
+		}
+		else if ( obj.GetType() == typeof( double ) )
+		{
+			PushNumber( (double)obj );
+		}
+		else
+		{
+			PTR ptr = GetObjectPtr( obj );
+			PushLightUserData( ptr );
+		}
+	}
+
+	protected void CreateLibraryForType( TypeDescription type )
+	{
+
+	}
+
+	protected void CreateBindingsForType( TypeDescription type )
+	{
+		foreach ( var func in type.Methods )
+		{
+			var lambda = ( PTR STATE ) => {
+				Assert.True( STATE == L );
+
+				object instance = null;
+				if (!func.IsStatic)
+				{
+					PTR instPtr = ToPointer( 1 );
+					instance = Dextr.Lua.Mem.GetObject<object>( instPtr );
+				}
+
+				int stackOffset = func.IsStatic ? 1 : 2;
+				object[] args = new object[func.Parameters.Length];
+				for ( int iArg = 0; iArg < args.Length; ++iArg )
+				{
+					var param = func.Parameters[iArg];
+					args[iArg] = LuaToManaged( param.ParameterType, iArg + stackOffset );
+				}
+
+				Log.Info( $"Invoke '{func.Name}' on instance {instance} with args {args}" );
+				if ( func.ReturnType == typeof( void ) )
+				{
+					func.Invoke( instance, args );
+					return 0;
+				}
+				else
+				{
+					object ret = func.InvokeWithReturn<object>( instance, args );
+					PushManagedToLua( ret );
+					return 1;
+				}
+			};
+
+			Register( lambda, func.Name );
+			Log.Info( $"Registered func: '{func.Name}'" );
 		}
 	}
 
@@ -353,6 +533,14 @@ public class LuaContext : IDisposable
 	{
 		Assert.True( L != 0 );
 		Lua.Module.lua_pushcclosure( L, fn, n );
+	}
+
+	public void PushCClosure( Func<PTR, int> fn, int n )
+	{
+		var ptr = GetFunctionPtr( ( args ) => {
+			return fn( (PTR)args[0] );
+		} );
+		PushCClosure( ptr, n );
 	}
 
 	public void PushBoolean( bool b )
@@ -644,6 +832,17 @@ public class LuaContext : IDisposable
 		Lua.Module.lua_createtable( L, 0, 0 );
 	}
 
+	public void Register( Func<PTR, int> fn, string name )
+	{
+		PushCFunction( fn );
+		SetGlobal( name );
+	}
+
+	public void PushCFunction( Func<PTR, int> fn )
+	{
+		PushCClosure( fn, 0 );
+	}
+
 	public bool IsFunction( int n ) { return Type( n ) == LuaType.Function; }
 	public bool IsTable( int n ) { return Type( n ) == LuaType.Table; }
 	public bool IsLightUserData( int n ) { return Type( n ) == LuaType.LightUserData; }
@@ -671,4 +870,158 @@ public class LuaContext : IDisposable
 	}
 
 	// TODO: locals, hooks, etc
+
+	// lauxlib
+	public void CheckVersion( double ver, int sz )
+	{
+		Assert.True( L != 0 );
+
+		Lua.Module.luaL_checkversion_( L, ver, sz );
+	}
+
+	public void CheckVersion()
+	{
+		CheckVersion( 504, (8*16) + 8 );
+	}
+
+	public int GetMetafield( int obj, string e )
+	{
+		Assert.True( L != 0 );
+
+		var (scope, pStr) = Lua.Module.ScopedString( e );
+		try
+		{
+			return Lua.Module.luaL_getmetafield( L, obj, pStr );
+		}
+		finally
+		{
+			scope.Dispose();
+		}
+	}
+
+	public int CallMeta( int obj, string e )
+	{
+		Assert.True( L != 0 );
+
+		var (scope, pStr) = Lua.Module.ScopedString( e );
+		try
+		{
+			return Lua.Module.luaL_callmeta( L, obj, pStr );
+		}
+		finally
+		{
+			scope.Dispose();
+		}
+	}
+
+	//public string T
+	public int ArgError( int arg, string extramsg )
+	{
+		Assert.True( L != 0 );
+
+		var (scope, pStr) = Lua.Module.ScopedString( extramsg );
+		try
+		{
+			return Lua.Module.luaL_argerror( L, arg, pStr );
+		}
+		finally
+		{
+			scope.Dispose();
+		}
+	}
+
+	public int TypeError( int arg, string tname )
+	{
+		Assert.True( L != 0 );
+
+		var (scope, pStr) = Lua.Module.ScopedString( tname );
+		try
+		{
+			return Lua.Module.luaL_typeerror( L, arg, pStr );
+		}
+		finally
+		{
+			scope.Dispose();
+		}
+	}
+
+	public int NewMetatable( string tname )
+	{
+		Assert.True( L != 0 );
+
+		var (scope, pStr) = Lua.Module.ScopedString( tname );
+		try
+		{
+			return Lua.Module.luaL_newmetatable( L, pStr );
+		}
+		finally
+		{
+			scope.Dispose();
+		}
+	}
+
+	public void SetMetatable( string tname )
+	{
+		Assert.True( L != 0 );
+
+		var (scope, pStr) = Lua.Module.ScopedString( tname );
+		try
+		{
+			Lua.Module.luaL_setmetatable( L, pStr );
+		}
+		finally
+		{
+			scope.Dispose();
+		}
+	}
+
+	public void SetFuncs( (string, CFunction)[] funcs, int nup )
+	{
+		// Format the array so C can take it.
+		int arrSize = (funcs.Length + 1) * 8;
+		var stringScopes = new (IDisposable scope, PTR ptr)[funcs.Length];
+
+		PTR arr = Lua.Module.dex_builtin_malloc( arrSize );
+		try
+		{
+			Dextr.Lua.Mem.Set( arr, 0, arrSize );
+
+			for ( int i = 0; i < funcs.Length; i++ )
+			{
+				var (name, func) = funcs[i];
+				stringScopes[i] = Lua.Module.ScopedString( name );
+
+				PTR fPtr = GetFunctionPtr( ( object[] args ) => {
+					PTR ctxPtr = (PTR)args[0];
+					LuaContext ctx = ContextByPtr[ctxPtr];
+					return func( ctx );
+				} );
+
+				Log.Info( $"lfunc '{name}' at ptr {fPtr} (arr {arrSize}, got {Dextr.Lua.Mem.GetObject<object>( fPtr )})" );
+				Dextr.Lua.Mem.Store( arr + (i * 8) + 0, stringScopes[i].ptr );
+				Dextr.Lua.Mem.Store( arr + (i * 8) + 4, fPtr );
+			}
+
+			Lua.Module.luaL_setfuncs( L, arr, nup );
+		}
+		finally
+		{
+			foreach ( var scope in stringScopes )
+				scope.scope?.Dispose();
+
+			Lua.Module.dex_builtin_free( arr );
+		}
+	}
+
+	public void NewLibTable( (string, CFunction)[] funcs )
+	{
+		CreateTable( 0, funcs.Length );
+	}
+
+	public void NewLib( (string, CFunction)[] funcs )
+	{
+		CheckVersion();
+		NewLibTable( funcs );
+		SetFuncs( funcs, 0 );
+	}
 }
