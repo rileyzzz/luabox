@@ -27,6 +27,7 @@ public sealed class MyComponent : Component
 		if ( !lua.LoadFile( "script.lua" ) )
 			return;
 
+		/*
 		lua.NewTable();
 		for ( int i = 1; i <= 5; i++ )
 		{
@@ -36,6 +37,7 @@ public sealed class MyComponent : Component
 		}
 
 		lua.SetGlobal( "foo" );
+		*/
 
 		int result = lua.PCall( 0, Lua.MultRet, 0 );
 		if (result != 0)
