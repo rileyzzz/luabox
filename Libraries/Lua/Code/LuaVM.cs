@@ -177,6 +177,48 @@ public class LuaContext : IDisposable
 		return ptr;
 	}
 
+	protected void PushObjectPtr( object obj )
+	{
+		PTR objPtr = GetObjectPtr( obj );
+
+		PTR pPtr = NewUserData( 4 );
+		Dextr.Lua.Mem.Store( pPtr, objPtr );
+
+		SetMetatable( obj.GetType().FullName );
+	}
+
+	protected object ToObjectPtr( int index )
+	{
+		PTR ptr = ToUserData( index );
+
+		// Read the pointer.
+		PTR objPtr = Dextr.Lua.Mem.LoadInt( ptr );
+
+		object managedObject = null;
+		if ( ptr != 0 )
+			managedObject = Dextr.Lua.Mem.GetObject<object>( objPtr );
+
+		return managedObject;
+	}
+
+	protected object CheckObjectPtr( int index, Type type )
+	{
+		PTR ptr = CheckUData( index, type.FullName );
+
+		// Read the pointer.
+		PTR objPtr = Dextr.Lua.Mem.LoadInt( ptr );
+
+		object managedObject = null;
+		if ( ptr != 0 )
+		{
+			if ( Dextr.Lua.Mem.TryGetObject<object>( objPtr, out managedObject ) && managedObject.GetType() == type )
+				return managedObject;
+		}
+
+		ArgError( 1, $"CheckObjectPtr: Expected {type.Name}, got {managedObject}" );
+		return null;
+	}
+
 	internal PTR GetFunctionPtr( Dextr.Lua.Mem.ExternalFunc fn )
 	{
 		if ( ObjectPool.TryGetValue( fn, out PTR ptr ) )
@@ -199,6 +241,8 @@ public class LuaContext : IDisposable
 		CreateLibraryForType( TypeLibrary.GetType( typeof( Scene ) ) );
 		//CreateLibraryForType( TypeLibrary.GetType( typeof( SceneWorld ) ) );
 		CreateLibraryForType( TypeLibrary.GetType( typeof( SceneModel ) ) );
+		CreateLibraryForType( TypeLibrary.GetType( typeof( CameraComponent ) ) );
+		CreateLibraryForType( TypeLibrary.GetType( typeof( SceneCamera ) ) );
 
 		CreateLibraryForType( TypeLibrary.GetType( typeof( TimeGlue ) ), "Time" );
 		CreateLibraryForType( TypeLibrary.GetType( typeof( GameGlue ) ), "Game" );
@@ -267,11 +311,11 @@ public class LuaContext : IDisposable
 			return ToString( index );
 		}
 
-		PTR ptr = ToPointer( index );
-		object managedObject = null;
-		if (ptr != 0)
+		//PTR ptr = ToPointer( index );
+		object managedObject = ToObjectPtr( index );
+		if ( managedObject != null )
 		{
-			managedObject = Dextr.Lua.Mem.GetObject<object>( ptr );
+			Assert.True( managedObject.GetType() == type );
 		}
 
 		return managedObject;
@@ -300,13 +344,7 @@ public class LuaContext : IDisposable
 			return null;
 		}
 
-		PTR ptr = ToPointer( index );
-		object managedObject = null;
-		if ( ptr != 0 )
-		{
-			managedObject = Dextr.Lua.Mem.GetObject<object>( ptr );
-		}
-
+		object managedObject = ToObjectPtr( index );
 		return managedObject;
 	}
 
@@ -345,15 +383,7 @@ public class LuaContext : IDisposable
 			return CheckString( index );
 		}
 
-		if ( !IsLightUserData( index )
-			|| !Dextr.Lua.Mem.TryGetObject<object>( ToPointer( index ), out object obj )
-			|| type != obj.GetType() )
-		{
-			ArgError( 1, $"Expected {type.Name}" );
-			return null;
-		}
-
-		return obj;
+		return CheckObjectPtr( index, type );
 	}
 
 	protected bool IsOfType( Type type, int index )
@@ -375,7 +405,7 @@ public class LuaContext : IDisposable
 			return IsString( index );
 		}
 
-		bool isUData = IsLightUserData( index );
+		bool isUData = IsUserData( index );
 		if (isUData)
 		{
 			return TestUData( index, type.FullName ) != 0;
@@ -412,54 +442,15 @@ public class LuaContext : IDisposable
 		}
 		else
 		{
-			PTR ptr = GetObjectPtr( obj );
-			PushLightUserData( ptr );
-
-			// Set the metatable of the object we just created.
-			GetMetatable( obj.GetType().FullName );
-			SetMetatable( -2 );
+			PushObjectPtr( obj );
 		}
 	}
 
 	protected int LuaTypeToString( TypeDescription type )
 	{
-		PTR objPtr = CheckUData( 1, type.FullName );
-		if ( !Dextr.Lua.Mem.TryGetObject<object>( objPtr, out object obj ) || type.TargetType != obj.GetType() )
-		{
-			ArgError( 1, $"Expected {type.Name}" );
-		}
-
+		object obj = CheckObjectPtr( 1, type.TargetType );
 		PushString( obj.ToString() );
 		return 1;
-	}
-
-	protected int LuaGetPropertyOnType( TypeDescription type, PropertyDescription prop )
-	{
-		PTR objPtr = CheckUData( 1, type.FullName );
-
-		//PTR objPtr = c.ToUserData( 1 );
-		if ( !Dextr.Lua.Mem.TryGetObject<object>( objPtr, out object obj ) || type.TargetType != obj.GetType() )
-		{
-			ArgError( 1, $"Expected {type.Name}" );
-		}
-
-		return 1;
-	}
-
-	protected int LuaSetPropertyOnType( TypeDescription type, PropertyDescription prop )
-	{
-		PTR objPtr = CheckUData( 1, type.FullName );
-
-		if ( !Dextr.Lua.Mem.TryGetObject<object>( objPtr, out object obj ) || type.TargetType != obj.GetType() )
-		{
-			ArgError( 1, $"Expected {type.Name}" );
-		}
-
-		object arg = CheckLuaToManaged( prop.PropertyType, 2 );
-		prop.SetValue( obj, arg );
-
-		Log.Info( obj );
-		return 0;
 	}
 
 	protected int LuaMethod( TypeDescription type, string method, bool isStatic = false )
@@ -468,11 +459,9 @@ public class LuaContext : IDisposable
 
 		if ( !isStatic )
 		{
-			PTR objPtr = CheckUData( 1, type.FullName );
-
-			if ( !Dextr.Lua.Mem.TryGetObject<object>( objPtr, out obj ) || type.TargetType != obj.GetType() )
+			obj = CheckObjectPtr( 1, type.TargetType );
+			if ( obj == null )
 			{
-				ArgError( 1, $"Expected {type.Name}" );
 				return 0;
 			}
 		}
@@ -547,18 +536,16 @@ public class LuaContext : IDisposable
 
 	protected int LuaIndex( TypeDescription type )
 	{
-		PTR objPtr = CheckUData( 1, type.FullName );
+		object obj = CheckObjectPtr( 1, type.TargetType );
+		string key = CheckString( 2 );
+		Log.Info( $"get {obj}['{key}']" );
 
-		if ( !Dextr.Lua.Mem.TryGetObject<object>( objPtr, out object obj ) || type.TargetType != obj.GetType() )
+		if ( obj == null )
 		{
-			ArgError( 1, $"Expected {type.Name}" );
 			return 0;
 		}
 
-		string key = CheckString( 2 );
-
-		//Log.Info( $"indexing {obj} with {key}" );
-
+		
 		PropertyDescription prop = type.GetProperty( key );
 		MethodDescription method = type.GetMethod( key );
 
@@ -588,15 +575,13 @@ public class LuaContext : IDisposable
 
 	protected int LuaNewIndex( TypeDescription type )
 	{
-		PTR objPtr = CheckUData( 1, type.FullName );
+		object obj = CheckObjectPtr( 1, type.TargetType );
+		string key = CheckString( 2 );
 
-		if ( !Dextr.Lua.Mem.TryGetObject<object>( objPtr, out object obj ) || type.TargetType != obj.GetType() )
+		if ( obj == null )
 		{
-			ArgError( 1, $"Expected {type.Name}" );
 			return 0;
 		}
-
-		string key = CheckString( 2 );
 
 		//Log.Info( $"new index {obj} with {key}" );
 
@@ -611,6 +596,8 @@ public class LuaContext : IDisposable
 		if (prop != null)
 		{
 			object value = CheckLuaToManaged( prop.PropertyType, 3 );
+			Log.Info( $"{obj}['{key}'] = {value}" );
+
 			prop.SetValue( obj, value );
 		}
 
@@ -641,13 +628,7 @@ public class LuaContext : IDisposable
 			return 0;
 		}
 
-		PushLightUserData( GetObjectPtr( obj ) );
-
-		// Set the metatable of the object we just created.
-		GetMetatable( type.FullName );
-		SetMetatable( -2 );
-
-		//Log.Info( $"created: {ptr}" );
+		PushObjectPtr( obj );
 		return 1;
 	}
 
@@ -669,6 +650,8 @@ public class LuaContext : IDisposable
 	protected int StaticLuaIndex( TypeDescription type )
 	{
 		string key = CheckString( 2 );
+
+		Log.Info( $"static index {type.Name}.{key}" );
 
 		if (key == "new" && !type.IsStatic)
 		{
@@ -1355,6 +1338,22 @@ public class LuaContext : IDisposable
 		Pop( 1 );
 	}
 
+	// Compatibilty macros
+	public int NewUserData( int size )
+	{
+		return NewUserDataUV( size, 1 );
+	}
+
+	public int GetUserValue( int idx )
+	{
+		return GetIUserValue( idx, 1 );
+	}
+
+	public int SetUserValue( int idx )
+	{
+		return SetIUserValue( idx, 1 );
+	}
+
 	// TODO: locals, hooks, etc
 
 	// lauxlib
@@ -1560,6 +1559,7 @@ public class LuaContext : IDisposable
 		}
 	}
 
+	private int debugFuncId = 0;
 	public void SetFuncs( (string, CFunction)[] funcs, int nup )
 	{
 		// Format the array so C can take it.
@@ -1576,9 +1576,11 @@ public class LuaContext : IDisposable
 				var (name, func) = funcs[i];
 				stringScopes[i] = Lua.Module.ScopedString( name );
 
+				int id = debugFuncId++;
 				PTR fPtr = GetFunctionPtr( ( object[] args ) => {
 					PTR ctxPtr = (PTR)args[0];
 					LuaContext ctx = ContextByPtr[ctxPtr];
+					Log.Info( $"debug: call func {name} ({id})" );
 					return func( ctx );
 				} );
 

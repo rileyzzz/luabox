@@ -32,9 +32,13 @@ pos = Vector3.Random
 pos.x = pos.x * 100
 pos.y = pos.y * 100
 pos.z = math.sin(Time.Now)
-obj = SceneModel.new(Game.ActiveScene.SceneWorld, 'models/debugcube.vmdl', Transform.new(pos))
 
-return 123
+rot = Rotation.From(math.random(360), math.random(360), math.random(360))
+scale = Vector3.new(10, 10, 10)
+
+obj = SceneModel.new(Game.ActiveScene.SceneWorld, 'models/debugcube.vmdl', Transform.new(pos, rot, scale))
+
+return obj.Position.y
 ";
 
     protected string CodeText = DefaultCode;
