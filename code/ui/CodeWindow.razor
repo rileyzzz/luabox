@@ -28,13 +28,13 @@
     protected const string DefaultCode = @"
 print('Hello world!');
 
-testvec = Vector3.new(1, 3, 4)
-testvec.x = 5
-print('cool vector ' .. tostring(testvec) .. ' has x ' .. testvec.x)
+pos = Vector3.Random
+pos.x = pos.x * 100
+pos.y = pos.y * 100
+pos.z = math.sin(Time.Now)
+obj = SceneModel.new(Game.ActiveScene.SceneWorld, 'models/debugcube.vmdl', Transform.new(pos))
 
-clamped = testvec:Clamp(2, 3)
-print('cool vector clamped ' .. tostring(clamped))
-return x
+return 123
 ";
 
     protected string CodeText = DefaultCode;
@@ -69,7 +69,7 @@ return x
 
     protected void RunCode()
     {
-        Log.Info($"log text {LuaLog.Text}");
+        // Log.Info($"log text {LuaLog.Text}");
 
         var lua = Lua.CreateContext();
 

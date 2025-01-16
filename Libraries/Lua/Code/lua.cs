@@ -355,7 +355,9 @@ public static class Mem
 		
 		if (FuncTable[index] == null)
 		{
+			#if !DEXTR_NOWARN_MISSING
 			Log.Warning($"Missing function: \"{funcName}\"");
+			#endif // DEXTR_NOWARN_MISSING
 		}
 		else
 		{

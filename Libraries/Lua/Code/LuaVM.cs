@@ -74,6 +74,19 @@ public enum LuaType : int
 	NumTypes		= 9,
 }
 
+public static class TimeGlue
+{
+	public static float Now => Time.Now;
+	public static float Delta => Time.Delta;
+}
+
+public static class GameGlue
+{
+	public static bool IsPlaying => Game.IsPlaying;
+	public static bool IsPaused => Game.IsPaused;
+	public static Scene ActiveScene => Game.ActiveScene;
+}
+
 public static class Lua
 {
 	internal static Dextr.Lua Module;
@@ -131,7 +144,7 @@ public class LuaContext : IDisposable
 
 		//CreateTestLibrary();
 
-		Log.Info( $"options {options.BindSandboxTypes}" );
+		//Log.Info( $"options {options.BindSandboxTypes}" );
 		if (options.BindSandboxTypes)
 		{
 			InitTypeBindings();
@@ -181,6 +194,20 @@ public class LuaContext : IDisposable
 		CreateLibraryForType( TypeLibrary.GetType( typeof( Vector3 ) ) );
 		CreateLibraryForType( TypeLibrary.GetType( typeof( Vector4 ) ) );
 		CreateLibraryForType( TypeLibrary.GetType( typeof( Rotation ) ) );
+		CreateLibraryForType( TypeLibrary.GetType( typeof( Transform ) ) );
+
+		CreateLibraryForType( TypeLibrary.GetType( typeof( Scene ) ) );
+		//CreateLibraryForType( TypeLibrary.GetType( typeof( SceneWorld ) ) );
+		CreateLibraryForType( TypeLibrary.GetType( typeof( SceneModel ) ) );
+
+		CreateLibraryForType( TypeLibrary.GetType( typeof( TimeGlue ) ), "Time" );
+		CreateLibraryForType( TypeLibrary.GetType( typeof( GameGlue ) ), "Game" );
+
+		
+		//Log.Info( $"all types: {string.Join( '\n', TypeLibrary.GetTypes<object>().Select( x => x.Name ) )}" );
+
+		//CreateLibraryForType( TypeLibrary.GetType( "Time" ) );
+		
 
 		/*
 		foreach ( var type in TypeLibrary.GetTypes() )
@@ -235,6 +262,10 @@ public class LuaContext : IDisposable
 		{
 			return ToBoolean( index );
 		}
+		else if (type == typeof( string ) )
+		{
+			return ToString( index );
+		}
 
 		PTR ptr = ToPointer( index );
 		object managedObject = null;
@@ -259,6 +290,10 @@ public class LuaContext : IDisposable
 		else if ( IsBoolean( index ) )
 		{
 			return ToBoolean( index );
+		}
+		else if ( IsString( index ) )
+		{
+			return ToString( index );
 		}
 		else if (IsNoneOrNil( index ) )
 		{
@@ -305,6 +340,10 @@ public class LuaContext : IDisposable
 
 			return ToBoolean( index );
 		}
+		else if (type == typeof( string ) )
+		{
+			return CheckString( index );
+		}
 
 		if ( !IsLightUserData( index )
 			|| !Dextr.Lua.Mem.TryGetObject<object>( ToPointer( index ), out object obj )
@@ -330,6 +369,10 @@ public class LuaContext : IDisposable
 		else if ( type == typeof( bool ) )
 		{
 			return IsBoolean( index );
+		}
+		else if ( type == typeof( string ) )
+		{
+			return IsString( index );
 		}
 
 		bool isUData = IsLightUserData( index );
@@ -363,10 +406,18 @@ public class LuaContext : IDisposable
 		{
 			PushBoolean( (bool)obj );
 		}
+		else if ( obj.GetType() == typeof( string ) )
+		{
+			PushString( (string)obj );
+		}
 		else
 		{
 			PTR ptr = GetObjectPtr( obj );
 			PushLightUserData( ptr );
+
+			// Set the metatable of the object we just created.
+			GetMetatable( obj.GetType().FullName );
+			SetMetatable( -2 );
 		}
 	}
 
@@ -411,20 +462,29 @@ public class LuaContext : IDisposable
 		return 0;
 	}
 
-	protected int LuaMethod( TypeDescription type, string method )
+	protected int LuaMethod( TypeDescription type, string method, bool isStatic = false )
 	{
-		PTR objPtr = CheckUData( 1, type.FullName );
+		object obj = null;
 
-		if ( !Dextr.Lua.Mem.TryGetObject<object>( objPtr, out object obj ) || type.TargetType != obj.GetType() )
+		if ( !isStatic )
 		{
-			ArgError( 1, $"Expected {type.Name}" );
-			return 0;
+			PTR objPtr = CheckUData( 1, type.FullName );
+
+			if ( !Dextr.Lua.Mem.TryGetObject<object>( objPtr, out obj ) || type.TargetType != obj.GetType() )
+			{
+				ArgError( 1, $"Expected {type.Name}" );
+				return 0;
+			}
 		}
 
 		int numArgs = GetTop();
+		int iArgOffset = isStatic ? 0 : 1;
 
 		// Subtract 1 because we take the instance as the first argument.
-		var candidates = type.Methods.Where( x => x.IsNamed( method ) && x.Parameters.Length == (numArgs - 1) );
+		if ( !isStatic )
+			numArgs--;
+
+		var candidates = type.Methods.Where( x => x.IsNamed( method ) && x.Parameters.Length == numArgs );
 
 		if (!candidates.Any())
 		{
@@ -435,7 +495,7 @@ public class LuaContext : IDisposable
 		var matches = candidates.Where( candidate => {
 			for ( int iArg = 0; iArg < candidate.Parameters.Length; iArg++ )
 			{
-				if ( !IsOfType( candidate.Parameters[iArg].ParameterType, iArg + 2 ) )
+				if ( !IsOfType( candidate.Parameters[iArg].ParameterType, iArg + 1 + iArgOffset ) )
 					return false;
 			}
 			return true;
@@ -452,9 +512,9 @@ public class LuaContext : IDisposable
 
 				for ( int iArg = 0; iArg < candidate.Parameters.Length; iArg++ )
 				{
-					if ( !IsOfType( candidate.Parameters[iArg].ParameterType, iArg + 2 ) )
+					if ( !IsOfType( candidate.Parameters[iArg].ParameterType, iArg + 1 + iArgOffset ) )
 					{
-						ArgError( iArg + 2, $"{funcSig}: Expected {candidate.Parameters[iArg].ParameterType}" );
+						ArgError( iArg + 1 + iArgOffset, $"{funcSig}: Expected {candidate.Parameters[iArg].ParameterType}" );
 					}
 				}
 			}
@@ -468,7 +528,7 @@ public class LuaContext : IDisposable
 		for ( int iArg = 0; iArg < match.Parameters.Length; ++iArg )
 		{
 			var param = match.Parameters[iArg];
-			values[iArg] = CheckLuaToManaged( param.ParameterType, iArg + 2 );
+			values[iArg] = CheckLuaToManaged( param.ParameterType, iArg + 1 + iArgOffset );
 		}
 
 		//Log.Info( $"call method {type.Name}.{match.Name}" );
@@ -517,7 +577,7 @@ public class LuaContext : IDisposable
 		else if ( method != null )
 		{
 			// Do we have atleast 1 method with this name?
-			PushCFunction( ( LuaContext c ) => c.LuaMethod( type, key ) );
+			PushCFunction( ( LuaContext c ) => c.LuaMethod( type, key, false ) );
 			return 1;
 		}
 		else
@@ -571,6 +631,8 @@ public class LuaContext : IDisposable
 
 		try
 		{
+			//Log.Info( $"try construct {string.Join( ',', param.Select( x => x.ToString() ) )}" );
+
 			obj = type.Create<object>( param );
 		}
 		catch (Exception e)
@@ -589,10 +651,78 @@ public class LuaContext : IDisposable
 		return 1;
 	}
 
-	public void CreateLibraryForType( TypeDescription type )
+
+	protected void CreateTypeMetatable( TypeDescription type )
+	{
+		List<(string, CFunction)> funcs = new();
+
+		funcs.Add( ("__tostring", ( LuaContext c ) => c.LuaTypeToString( type )) );
+		funcs.Add( ("__index", ( LuaContext c ) => c.LuaIndex( type )) );
+		funcs.Add( ("__newindex", ( LuaContext c ) => c.LuaNewIndex( type )) );
+
+		// Create a metatable for the type.
+		NewMetatable( type.FullName );
+
+		SetFuncs( funcs.ToArray(), 0 );
+	}
+
+	protected int StaticLuaIndex( TypeDescription type )
+	{
+		string key = CheckString( 2 );
+
+		if (key == "new" && !type.IsStatic)
+		{
+			PushCFunction( ( LuaContext c ) => c.LuaConstructObject( type ) );
+			return 1;
+		}
+
+		PropertyDescription prop = type.Properties.Where( x => x.IsNamed( key ) ).FirstOrDefault();
+		MethodDescription method = type.Methods.Where( x => x.IsNamed( key ) ).FirstOrDefault();
+
+		//Log.Info( $"prop {prop} ({prop?.IsStatic})" );
+
+		if ( prop != null && prop.IsStatic )
+		{
+			object result = prop.GetValue( null );
+			PushManagedToLua( result );
+			return 1;
+		}
+		else if ( method != null && method.IsStatic )
+		{
+			// Do we have atleast 1 method with this name?
+			PushCFunction( ( LuaContext c ) => c.LuaMethod( type, key, true ) );
+			return 1;
+		}
+
+		ArgError( 2, $"No static property or method named '{key}'" );
+		return 0;
+	}
+
+	protected void CreateTypeLibraryTable( TypeDescription type, string overrideName )
+	{
+		List<(string, CFunction)> funcs = new();
+		funcs.Add( ("__index", ( LuaContext c ) => c.StaticLuaIndex( type )) );
+
+		CreateTable( 0, 0 );
+
+		NewMetatable( $"{type.FullName}.Static" );
+		SetFuncs( funcs.ToArray(), 0 );
+
+		SetMetatable( -2 );
+
+		SetGlobal( overrideName ?? type.Name );
+		//Log.Info( $"set global {type.Name}" );
+	}
+
+	public void CreateLibraryForType( TypeDescription type, string overrideName = null )
 	{
 		if ( type.IsGenericType )
 			return;
+
+		if (!type.IsStatic)
+		{
+			CreateTypeMetatable( type );
+		}
 
 		//if ( type.IsStatic )
 		//{
@@ -600,47 +730,15 @@ public class LuaContext : IDisposable
 		//	return;
 		//}
 
-		List<(string, CFunction)> funcs = new();
-
-		funcs.Add( ( "__tostring", (LuaContext c) => c.LuaTypeToString( type ) ) );
-
-
-		//Dictionary<string, CFunction> props = new();
-
-		// Accessors.
-		//foreach ( var prop in type.Properties )
-		//{
-		//	if ( prop.CanRead )
-		//	{
-		//		props.Add( $"get{prop.Name}", ( LuaContext c ) => c.LuaGetPropertyOnType( type, prop ) );
-		//	}
-
-		//	if ( prop.CanWrite )
-		//	{
-		//		props.Add( $"set{prop.Name}", ( LuaContext c ) => c.LuaSetPropertyOnType( type, prop ) );
-		//	}
-		//}
-
-		funcs.Add( ( "__index", ( LuaContext c ) => c.LuaIndex( type ) ) );
-		funcs.Add( ( "__newindex", ( LuaContext c ) => c.LuaNewIndex( type ) ) );
-
-		// Create a metatable for the type.
-		NewMetatable( type.FullName );
-
-		// Duplicate the metatable,
-		//PushValue( -1 );
-		// mt.__index = mt
-		//SetField( -2, "__index" );
-		// Register metamethods
-		SetFuncs( funcs.ToArray(), 0 );
-
+		/*
 		List<(string, CFunction)> libfuncs = new();
 		libfuncs.Add( ("new", (LuaContext c) => c.LuaConstructObject( type ) ) );
-
 		NewLib( libfuncs.ToArray() );
 		Log.Info( $"created library for type: {type.Name}" );
+		*/
 
-		SetGlobal( type.Name );
+		CreateTypeLibraryTable( type, overrideName );
+		//SetGlobal( type.Name );
 	}
 
 	public bool LoadString( string str, out string error )

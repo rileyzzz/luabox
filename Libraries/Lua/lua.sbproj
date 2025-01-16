@@ -3,5 +3,25 @@
   "Type": "library",
   "Org": "local",
   "Ident": "lua",
-  "Schema": 1
+  "Schema": 1,
+  "IncludeSourceFiles": false,
+  "Resources": null,
+  "PackageReferences": [],
+  "EditorReferences": null,
+  "IsWhitelistDisabled": false,
+  "Metadata": {
+    "Compiler": {
+      "RootNamespace": "Sandbox",
+      "DefineConstants": "SANDBOX;ADDON;DEXTR_NOWARN_MISSING",
+      "NoWarn": "1701;1702;1591;",
+      "WarningsAsErrors": "",
+      "TreatWarningsAsErrors": false,
+      "Nullables": false,
+      "Whitelist": true,
+      "ReleaseMode": "Release",
+      "AssemblyReferences": [],
+      "IgnoreFolders": [],
+      "DistinctAssemblyReferences": []
+    }
+  }
 }
