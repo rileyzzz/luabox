@@ -1,0 +1,105 @@
+@using System;
+@using System.Text;
+@using Sandbox;
+@using Sandbox.UI;
+@using Sandbox.Razor;
+@using Sandbox.Utility;
+@using LuaBox;
+
+@inherits Panel
+
+<root>
+    <div class="buttons">
+        @* <div class="button standard">Save</div> *@
+        <div class="button standard" @onclick=@(() => RunCode())>Run</div>
+    </div>
+    <CodeEditor @ref="Code" class="code" />
+    <div class="log">
+        <TextEntry @ref="LuaLog" />
+    </div>
+</root>
+
+@code {
+
+    public CodeEditor Code { get; set; }
+
+    public TextEntry LuaLog { get; set; }
+
+    protected const string DefaultCode = @"
+print('Hello world!');
+
+testvec = Vector3.new(1, 3, 4)
+testvec.x = 5
+print('cool vector ' .. tostring(testvec) .. ' has x ' .. testvec.x)
+
+clamped = testvec:Clamp(2, 3)
+print('cool vector clamped ' .. tostring(clamped))
+return x
+";
+
+    protected string CodeText = DefaultCode;
+    protected StringBuilder FullLog = new();
+
+    protected override void OnAfterTreeRender(bool firstTime)
+    {
+        base.OnAfterTreeRender(firstTime);
+
+        Code.Text = CodeText;
+        Code.OnTextEdited += ( string text ) => {
+            CodeText = text;
+        };
+
+        LuaLog.Multiline = true;
+        LuaLog.Disabled = true;
+        LuaLog.Text = FullLog.ToString();
+
+        if (firstTime)
+        {
+            Lua.Init( AddLog, (string err) => AddLog($"ERROR: {err}") );
+
+            AddLog("Welcome! Type some Lua code and hit run!\n");
+        }
+    }
+
+    protected void AddLog( string log )
+    {
+        FullLog.Append(log);
+        LuaLog.Text = FullLog.ToString();
+    }
+
+    protected void RunCode()
+    {
+        Log.Info($"log text {LuaLog.Text}");
+
+        var lua = Lua.CreateContext();
+
+        if (!lua.LoadString(Code.Text, out string error))
+        {
+            AddLog($"Failed to load: {error}\n");
+            return;
+        }
+
+        // lua.NewTable();
+        // for (int i = 1; i <= 5; i++)
+        // {
+        //     lua.PushNumber(i);
+        //     lua.PushNumber(i * 2);
+        //     lua.RawSet(-3);
+        // }
+
+        // lua.SetGlobal("foo");
+
+        int result = lua.PCall(0, Lua.MultRet, 0);
+        if (result != 0)
+        {
+            AddLog($"Failed to run script: {lua.ToString(-1)}\n");
+            return;
+        }
+
+        double sum = lua.ToNumber(-1);
+        AddLog($"Script returned: {sum}\n");
+        lua.Pop(1);
+
+        lua?.Dispose();
+    }
+}

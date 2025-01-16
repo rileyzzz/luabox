@@ -9,6 +9,8 @@ public sealed class MyComponent : Component
 	{
 		base.OnEnabled();
 
+		//SceneModel model = new SceneModel( Game.ActiveScene );
+
 		LuaTest();
 	}
 

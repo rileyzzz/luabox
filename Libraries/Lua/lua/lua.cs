@@ -1600,6 +1600,10 @@ public static class Mem
 
 
 
+
+public Action<string> OnStdOut { get; set; }
+public Action<string> OnStdErr { get; set; }
+
 public static class ModuleFS
 {
     
@@ -1928,13 +1932,16 @@ public const int PROT_GROWSUP   = 0x02000000;
 
         public override void Flush()
         {
+            string str = SB.ToString();
             if (!IsError)
             {
-                Log.Info(SB.ToString());
+                Log.Info(str);
+                ThisModule.OnStdOut?.Invoke(str);
             }
             else
             {
-                Log.Warning(SB.ToString());
+                Log.Warning(str);
+                ThisModule.OnStdErr?.Invoke(str);
             }
             SB.Clear();
         }

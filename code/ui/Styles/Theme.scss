@@ -4,3 +4,54 @@ i, icon {
     font-family: Material Icons;
 }
 
+.button {
+    /*font-family: $main-font;*/
+    font-family: 'Cascadia Code';
+    font-size: 1rem;
+    /*font-weight: bold;*/
+    color: white;
+    gap: 8px;
+    flex-shrink: 0;
+
+
+    &.standard {
+        pointer-events: all;
+        cursor: pointer;
+        height: 1.5rem;
+
+        padding: 8px 10px;
+
+        cursor: pointer;
+        transition: all 0.1s ease;
+        /*justify-content: center;*/
+        align-items: center;
+
+        gap: 10px;
+        background-color: #0008;
+        border: 2px solid transparent;
+
+        &:hover {
+            sound-in: ui.button.over;
+            border-color: #999;
+        }
+
+        &:active {
+            border-color: white;
+            sound-in: ui.button.press;
+        }
+    }
+
+    &.disabled {
+        cursor: default;
+        pointer-events: none;
+        color: grey;
+
+        label {
+            color: grey;
+        }
+    }
+
+    .label {
+        pointer-events: none;
+    }
+}
