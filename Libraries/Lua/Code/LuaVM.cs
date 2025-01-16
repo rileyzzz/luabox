@@ -538,7 +538,7 @@ public class LuaContext : IDisposable
 	{
 		object obj = CheckObjectPtr( 1, type.TargetType );
 		string key = CheckString( 2 );
-		Log.Info( $"get {obj}['{key}']" );
+		//Log.Info( $"get {obj}['{key}']" );
 
 		if ( obj == null )
 		{
@@ -596,7 +596,7 @@ public class LuaContext : IDisposable
 		if (prop != null)
 		{
 			object value = CheckLuaToManaged( prop.PropertyType, 3 );
-			Log.Info( $"{obj}['{key}'] = {value}" );
+			//Log.Info( $"{obj}['{key}'] = {value}" );
 
 			prop.SetValue( obj, value );
 		}
@@ -651,7 +651,7 @@ public class LuaContext : IDisposable
 	{
 		string key = CheckString( 2 );
 
-		Log.Info( $"static index {type.Name}.{key}" );
+		//Log.Info( $"static index {type.Name}.{key}" );
 
 		if (key == "new" && !type.IsStatic)
 		{
@@ -1580,7 +1580,7 @@ public class LuaContext : IDisposable
 				PTR fPtr = GetFunctionPtr( ( object[] args ) => {
 					PTR ctxPtr = (PTR)args[0];
 					LuaContext ctx = ContextByPtr[ctxPtr];
-					Log.Info( $"debug: call func {name} ({id})" );
+					//Log.Info( $"debug: call func {name} ({id})" );
 					return func( ctx );
 				} );
 
