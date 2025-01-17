@@ -1,7 +1,7 @@
 {
-  "Title": "Lua",
+  "Title": "Lua 5.4.7",
   "Type": "library",
-  "Org": "local",
+  "Org": "rileyzzz",
   "Ident": "lua",
   "Schema": 1,
   "IncludeSourceFiles": false,
