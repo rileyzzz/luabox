@@ -87,6 +87,16 @@ public static class GameGlue
 	public static Scene ActiveScene => Game.ActiveScene;
 }
 
+//public static class CloudGlue
+//{
+//	public static string Asset( [StringLiteralOnly] string ident ) => Cloud.Asset( ident );
+//	public static Model Model( [StringLiteralOnly] string ident ) => Cloud.Model( ident );
+//	public static Material Material( [StringLiteralOnly] string ident ) => Cloud.Material( ident );
+//	public static ParticleSystem ParticleSystem( [StringLiteralOnly] string ident ) => Cloud.ParticleSystem( ident );
+//	public static SoundEvent SoundEvent( [StringLiteralOnly] string ident ) => Cloud.SoundEvent( ident );
+//	public static Shader Shader( [StringLiteralOnly] string ident ) => Cloud.Shader( ident );
+//}
+
 public static class Lua
 {
 	internal static Dextr.Lua Module;
@@ -232,6 +242,7 @@ public class LuaContext : IDisposable
 	protected void InitTypeBindings()
 	{
 		//Log.Info( $"vector3: {TypeLibrary.GetType<Vector3>().Namespace}" );
+		/*
 		CreateLibraryForType( TypeLibrary.GetType( typeof( Vector2 ) ) );
 		CreateLibraryForType( TypeLibrary.GetType( typeof( Vector3 ) ) );
 		CreateLibraryForType( TypeLibrary.GetType( typeof( Vector4 ) ) );
@@ -243,6 +254,8 @@ public class LuaContext : IDisposable
 		CreateLibraryForType( TypeLibrary.GetType( typeof( SceneModel ) ) );
 		CreateLibraryForType( TypeLibrary.GetType( typeof( CameraComponent ) ) );
 		CreateLibraryForType( TypeLibrary.GetType( typeof( SceneCamera ) ) );
+		CreateLibraryForType( TypeLibrary.GetType( typeof( Material ) ) );
+		*/
 
 		CreateLibraryForType( TypeLibrary.GetType( typeof( TimeGlue ) ), "Time" );
 		CreateLibraryForType( TypeLibrary.GetType( typeof( GameGlue ) ), "Game" );
@@ -253,10 +266,10 @@ public class LuaContext : IDisposable
 		//CreateLibraryForType( TypeLibrary.GetType( "Time" ) );
 		
 
-		/*
+		
 		foreach ( var type in TypeLibrary.GetTypes() )
 		{
-			if ( type.Namespace == null || !type.Namespace.StartsWith( "Sandbox" ) )
+			if ( type.Namespace != null && !type.Namespace.StartsWith( "Sandbox" ) )
 				continue;
 
 			if ( type.Name.Contains( '<' ) )
@@ -265,7 +278,7 @@ public class LuaContext : IDisposable
 			CreateLibraryForType( type );
 			//CreateBindingsForType( type );
 		}
-		*/
+		
 	}
 
 	//protected void CreateTestLibrary()
@@ -604,6 +617,120 @@ public class LuaContext : IDisposable
 		return 0;
 	}
 
+	protected double PerformOp( Op op, double a)
+	{
+		if ( op == Op.Unm ) return -a;
+		return 0;
+	}
+
+	protected double PerformOp( Op op, double a, double b )
+	{
+		if ( op == Op.Add ) return a + b;
+		if ( op == Op.Sub ) return a - b;
+		if ( op == Op.Mul ) return a * b;
+		if ( op == Op.Div ) return a / b;
+		if ( op == Op.IDiv ) return Math.Floor(a / b);
+		if ( op == Op.Mod ) return a % b;
+		if ( op == Op.Pow ) return Math.Pow(a, b);
+		return 0;
+	}
+
+	protected int LuaUnaryOperator( TypeDescription type, Op op )
+	{
+		object obj = LuaToManagedSimple( 1 );
+
+		if ( type.TargetType == typeof( Vector2 ) )
+		{
+			Vector2 v = (Vector2)obj;
+
+			PushManagedToLua( new Vector2(
+				(float)PerformOp( op, v.x ),
+				(float)PerformOp( op, v.y )
+				) );
+
+			return 1;
+		}
+
+		if ( type.TargetType == typeof( Vector3 ) )
+		{
+			Vector3 v = (Vector3)obj;
+
+			PushManagedToLua( new Vector3(
+				(float)PerformOp( op, v.x ),
+				(float)PerformOp( op, v.y ),
+				(float)PerformOp( op, v.z )
+				) );
+
+			return 1;
+		}
+
+		if ( type.TargetType == typeof( Vector4 ) )
+		{
+			Vector4 v = (Vector4)obj;
+
+			PushManagedToLua( new Vector4(
+				(float)PerformOp( op, v.x ),
+				(float)PerformOp( op, v.y ),
+				(float)PerformOp( op, v.z ),
+				(float)PerformOp( op, v.w )
+				) );
+
+			return 1;
+		}
+
+		return 0;
+	}
+
+	protected int LuaBinaryOperator( TypeDescription type, Op op )
+	{
+		object a = LuaToManagedSimple( 1 );
+		object b = LuaToManagedSimple( 2 );
+
+		if ( type.TargetType == typeof( Vector2 ) )
+		{
+			Vector2 va = (Vector2)a;
+			Vector2 vb = (Vector2)b;
+
+			PushManagedToLua( new Vector2(
+				(float)PerformOp( op, va.x, vb.x ),
+				(float)PerformOp( op, va.y, vb.y )
+				) );
+
+			return 1;
+		}
+
+		if ( type.TargetType == typeof(Vector3) )
+		{
+			Vector3 va = (Vector3)a;
+			Vector3 vb = (Vector3)b;
+;
+			PushManagedToLua( new Vector3(
+				(float)PerformOp( op, va.x, vb.x ),
+				(float)PerformOp( op, va.y, vb.y ),
+				(float)PerformOp( op, va.z, vb.z )
+				) );
+
+			return 1;
+		}
+
+		if ( type.TargetType == typeof( Vector4 ) )
+		{
+			Vector4 va = (Vector4)a;
+			Vector4 vb = (Vector4)b;
+
+			PushManagedToLua( new Vector4(
+				(float)PerformOp( op, va.x, vb.x ),
+				(float)PerformOp( op, va.y, vb.y ),
+				(float)PerformOp( op, va.z, vb.z ),
+				(float)PerformOp( op, va.w, vb.w )
+				) );
+
+			return 1;
+		}
+
+		return 0;
+	}
+
 	protected int LuaConstructObject( TypeDescription type )
 	{
 		int numArgs = GetTop();
@@ -632,6 +759,13 @@ public class LuaContext : IDisposable
 		return 1;
 	}
 
+	protected bool HasOperators( Type type )
+	{
+		if ( type == typeof( Vector3 ) )
+			return true;
+
+		return false;
+	}
 
 	protected void CreateTypeMetatable( TypeDescription type )
 	{
@@ -641,6 +775,15 @@ public class LuaContext : IDisposable
 		funcs.Add( ("__index", ( LuaContext c ) => c.LuaIndex( type )) );
 		funcs.Add( ("__newindex", ( LuaContext c ) => c.LuaNewIndex( type )) );
 
+		if ( HasOperators( type.TargetType ) )
+		{
+			funcs.Add( ( "__add", ( LuaContext c ) => c.LuaBinaryOperator( type, Op.Add ) ) );
+			funcs.Add( ( "__mul", ( LuaContext c ) => c.LuaBinaryOperator( type, Op.Mul ) ) );
+			funcs.Add( ( "__sub", ( LuaContext c ) => c.LuaBinaryOperator( type, Op.Sub ) ) );
+			funcs.Add( ( "__div", ( LuaContext c ) => c.LuaBinaryOperator( type, Op.Div ) ) );
+			funcs.Add( ( "__unm", ( LuaContext c ) => c.LuaUnaryOperator( type, Op.Unm ) ) );
+		}
+		
 		// Create a metatable for the type.
 		NewMetatable( type.FullName );
 

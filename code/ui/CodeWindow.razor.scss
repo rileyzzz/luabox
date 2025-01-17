@@ -3,10 +3,17 @@ CodeWindow {
     flex-direction: column;
     width: 100%;
     height: 100%;
-    gap: 8px;
-    padding-top: 4px;
+    gap: 4px;
+    /*padding-top: 2px;*/
 
     .buttons {
+        /*position: absolute;*/
+        /*top: 0;*/
+        /*left: 0;*/
+        /*right: 0;*/
+        /*margin: 8px;*/
+        /*z-index: 4;*/
+
         flex-shrink: 0;
         flex-grow: 0;
         gap: 8px;
@@ -16,13 +23,17 @@ CodeWindow {
     .code {
         width: 100%;
         height: 100%;
+        position: relative;
+
         flex-grow: 1;
         flex-shrink: 1;
         max-height: 100%;
         border-radius: 2px;
-        background-color: #222f;
+        background-color: #111f;
         font-family: 'Cascadia Code';
         overflow: scroll;
+
+        border: 1px solid #222;
     }
 
     .log {
@@ -30,6 +41,7 @@ CodeWindow {
         flex-shrink: 1;
         max-height: 40%;
         flex-direction: column;
+        border: 1px solid #222;
 
         textentry {
             overflow: scroll;
@@ -37,8 +49,10 @@ CodeWindow {
             height: 100%;
             /*height: 8rem;*/
             border-radius: 2px;
-            background-color: #111f;
-            font-family: 'Cascadia Code';
+            background-color: #000f;
+            /*font-family: 'Cascadia Code';*/
+            font-family: 'Courier New';
+            /*font-size: 18px;*/
             flex-direction: column-reverse;
             justify-content: flex-start;
 

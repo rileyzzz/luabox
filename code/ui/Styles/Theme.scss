@@ -6,7 +6,7 @@ i, icon {
 
 .button {
     /*font-family: $main-font;*/
-    font-family: 'Cascadia Code';
+    font-family: Roboto;
     font-size: 1rem;
     /*font-weight: bold;*/
     color: white;
@@ -17,13 +17,15 @@ i, icon {
     &.standard {
         pointer-events: all;
         cursor: pointer;
-        height: 1.5rem;
+        height: 2rem;
+        
+        min-width: 4rem;
 
-        padding: 8px 10px;
+        padding: 4px 10px;
 
         cursor: pointer;
         transition: all 0.1s ease;
-        /*justify-content: center;*/
+        justify-content: center;
         align-items: center;
 
         gap: 10px;

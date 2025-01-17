@@ -38,6 +38,12 @@ scale = Vector3.new(10, 10, 10)
 
 obj = SceneModel.new(Game.ActiveScene.SceneWorld, 'models/debugcube.vmdl', Transform.new(pos, rot, scale))
 
+mat = Material.Load('materials/testmat.vmat')
+obj:SetMaterialOverride(mat)
+
+cam = Game.ActiveScene.Camera
+cam.WorldRotation = Rotation.LookAt(obj.Position - cam.WorldPosition)
+
 return obj.Position.y
 ";
 

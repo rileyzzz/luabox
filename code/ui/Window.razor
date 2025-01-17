@@ -47,9 +47,10 @@
 
         if (firstTime)
         {
-            const int Margin = 100;
+            const int Margin = 8;
 
-            WindowRect = new Rect(Margin, Margin, Screen.Width - Margin * 2, Screen.Height - Margin * 2);
+            // WindowRect = new Rect(Margin, Margin, Screen.Width - Margin * 2, Screen.Height - Margin * 2);
+            WindowRect = new Rect(Margin, Screen.Height / 2, Screen.Width - Margin * 2, (Screen.Height / 2) - Margin );
         }
 
         UpdateRect();
